@@ -1,0 +1,109 @@
+---
+title: "Integrate limb muscle scRNAseq"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load packages
+```{r}
+library(Seurat)
+library(SingleCellExperiment)
+library(dplyr)
+```
+
+## Load and prepare data
+### Camps
+```{r}
+(camps <- readRDS("input/reads_qc_scran_sc3.rds"))
+levels(camps$Clusters)
+levels(camps$Clusters) <- c("ISC 3", "ISC 1", "ISC 2", "Satellite", "Schwann", "Smooth muscle", "Fibroblast")
+camps.seurat <- as.Seurat(camps)
+camps.seurat$dataset <- "Camps"
+#rename Idents
+Idents(camps.seurat) <- camps.seurat$Clusters
+```
+
+### Giordani
+```{r}
+(giordani.seurat <- readRDS("input/giordani_seurat_annotated.rds"))
+giordani.seurat$dataset <- "Giordani"
+unique(Idents(giordani.seurat))
+```
+
+### Tabula muris
+```{r}
+(tm.seurat <- readRDS("input/tm_droplet_limbMuscle_seurat.rds"))
+tm.seurat$dataset <- "Schaum"
+Idents(tm.seurat) <- tm.seurat$authors_annotation
+unique(Idents(tm.seurat))
+#levels(Idents(tm.seurat)) <- c("Endothelial", "T", "B", "Mesenchymal progenitor", "Macrophage", "Satellite")
+```
+
+## Merge datasets into list
+```{r}
+limb.muscle <- list(camps = camps.seurat, giordani = giordani.seurat, tabula.muris = tm.seurat)
+limb.muscle
+```
+
+```{r}
+for (i in 1:length(limb.muscle)) {
+    limb.muscle[[i]] <- NormalizeData(limb.muscle[[i]], verbose = FALSE)
+    limb.muscle[[i]] <- FindVariableFeatures(limb.muscle[[i]], selection.method = "vst", 
+        nfeatures = 2000, verbose = FALSE)
+}
+```
+
+```{r}
+limb.muscle.anchors <- FindIntegrationAnchors(limb.muscle, dims = 1:30)
+```
+
+```{r}
+limb.muscle.integrated <- IntegrateData(anchorset = limb.muscle.anchors, dims = 1:30)
+```
+
+```{r}
+library(ggplot2)
+#library(cowplot)
+# switch to integrated assay. The variable features of this assay are automatically
+# set during IntegrateData
+DefaultAssay(limb.muscle.integrated) <- "integrated"
+
+# Run the standard workflow for visualization and clustering
+limb.muscle.integrated <- ScaleData(limb.muscle.integrated, verbose = FALSE)
+limb.muscle.integrated <- RunPCA(limb.muscle.integrated, npcs = 30, verbose = FALSE)
+limb.muscle.integrated <- RunUMAP(limb.muscle.integrated, reduction = "pca", dims = 1:30)
+DimPlot(limb.muscle.integrated, reduction = "umap")
+```
+
+```{r fig.height=8, fig.width=10}
+FeaturePlot(limb.muscle.integrated, features = c("Cd3g", "Cd79a", "Lyz2", "Pecam1", "Myod1", "Pdgfra", "Plp1", "Myl9", "Thbs4", "Sfrp5", "Myl1", "Mmrn1"), reduction = "umap")
+```
+
+```{r fig.height=6, fig.width=15}
+DimPlot(object = limb.muscle.integrated, reduction = "umap", split.by = "dataset", label = TRUE, ncol = 4, pt.size = 1) + NoLegend() + ggsave("output/integration/umap.splitByDataset.png", dpi = 300, height = 6, width = 14)
+```
+
+
+```{r}
+levels(Idents(limb.muscle.integrated))
+```
+
+```{r}
+levels(Idents(limb.muscle.integrated)) <- c("Mmrn1+", "Myl1+", "Schwann", "Sfrp5+", "Tenocyte", "SMMC", "B", "DC", "Endothelial", "ISC", "Tenocyte", "Schwann", "ISC", "ISC", "ISC", "Macrophage", "Monocyte", "Macrophage", "ISC", "Mmrn1+", "Monocyte", "Myl1+", "Satellite", "Schwann", "Sfrp5+", "SMMC", "SMMC", "T", "Tenocyte")
+```
+
+```{r}
+DimPlot(limb.muscle.integrated, reduction = "umap", label = TRUE) + NoLegend() + ggsave("output/integration/umap.clusters.png", dpi = 300, width = 6, height = 6)
+```
+
+```{r}
+DimPlot(limb.muscle.integrated, reduction = "umap", group.by = "dataset") + theme(legend.position = "top") + ggsave("output/integration/umap.groupByDataset.png", dpi = 300, height = 6, width = 6)
+```
+
+```{r}
+saveRDS(limb.muscle.integrated, "input/limb_muscle_integrated.rds")
+```
+

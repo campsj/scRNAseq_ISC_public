@@ -1,0 +1,100 @@
+---
+title: "Satellite_cells_tabula_muris"
+output: html_document
+---
+
+## Source requirements
+```{r}
+suppressPackageStartupMessages({
+    library(ExperimentHub)
+    library(SingleCellExperiment)
+    library(TabulaMurisData)
+    library(scater)
+    library(SC3)
+    library(viridis)
+})
+set.seed(12345)
+```
+
+## Set up experiment hub
+```{r}
+eh <- ExperimentHub()
+query(eh, "TabulaMurisData")
+```
+
+## Select data
+```{r}
+droplet <- TabulaMurisDroplet()
+```
+
+```{r}
+droplet
+colData(droplet)
+unique(colData(droplet)$tissue)
+```
+
+```{r}
+(droplet_limb.muscle <- droplet[,colData(droplet)$tissue == "Limb_Muscle"])
+unique(colData(droplet_limb.muscle)$cell_ontology_class)
+```
+
+```{r}
+colData(droplet_limb.muscle)$cell_ontology_class[is.na(colData(droplet_limb.muscle)$cell_ontology_class)] <- "unannotated"
+unique(colData(droplet_limb.muscle)$cell_ontology_class)
+(droplet_limb.muscle_musc <- droplet_limb.muscle[,colData(droplet_limb.muscle)$cell_ontology_class == "skeletal muscle satellite cell"])
+```
+
+## Normalize data
+```{r}
+(droplet_limb.muscle_musc <- normalize(droplet_limb.muscle_musc))
+```
+
+### UMAP
+```{r}
+droplet_limb.muscle_musc <- runUMAP(droplet_limb.muscle_musc)
+plotReducedDim(droplet_limb.muscle_musc, use_dimred = "UMAP")
+```
+
+### plot genes
+```{r fig.height=2.5, fig.width=2}
+myo_genes <- c("Cd82", "Pax7", "Myf5", "Myod1", "Myog") 
+dyst_genes <- c("Angptl4", "Arhgap5", "Grsf1", "Dpysl3")
+```
+
+```{r}
+for (g in c(myo_genes, dyst_genes)) {
+  print(plotReducedDim(droplet_limb.muscle_musc, colour_by = g, use_dimred = "UMAP") +
+          scale_fill_gradientn(colors = viridis(n = 100), 
+                                guide = guide_colorbar(barwidth = 5, barheight = 0.5, ticks = FALSE, label.position = "top", 
+                                                       label.vjust = -3, direction = "horizontal", title.vjust = 0.2)) +
+          labs(fill = g) +
+          theme(legend.position = "top", legend.justification = c(0.5, 0.5), axis.line = element_blank(),
+                axis.text = element_blank(), axis.ticks = element_blank(), axis.title = element_blank(), 
+                legend.title = element_text(size = 14, face = "italic")))
+  ggsave(paste("output_musc/", g, ".png", sep = ""), dpi = 300)
+  ggsave(paste("output_musc/", g, ".pdf", sep = ""), dpi = 300)
+}
+```
+
+### Violin plot
+```{r fig.height=2.5, fig.width=2.5}
+  print(plotExpression(droplet_limb.muscle_musc, myo_genes, feature_colours = FALSE) +
+          #scale_fill_brewer(type = "qual", palette = "Set2") +
+          scale_y_continuous(expand = c(0,0.1,0,0.1)) +
+          theme(axis.title.x = element_blank(), legend.position = "none", strip.text.x = element_text(size = 14, face = "italic"),
+                legend.title = element_blank(), strip.background = element_blank(), strip.text = element_text(face = "italic"),
+                axis.text.x = element_text(angle = 45, hjust = 1)))
+  ggsave(paste("output_musc/myogenic_genes_violin.png", sep = ""), dpi = 600)
+  ggsave(paste("output_musc/myogenic_genes_violin.pdf", sep = ""), dpi = 600)
+```
+
+```{r fig.height=2.5, fig.width=2.5}
+  print(plotExpression(droplet_limb.muscle_musc, dyst_genes, feature_colours = FALSE) +
+          #scale_fill_brewer(type = "qual", palette = "Set2") +
+          scale_y_continuous(expand = c(0,0.1,0,0.1), limits = c(0, 6)) +
+          theme(axis.title.x = element_blank(), legend.position = "none", strip.text.x = element_text(size = 14, face = "italic"),
+                legend.title = element_blank(), strip.background = element_blank(), strip.text = element_text(face = "italic"),
+                axis.text.x = element_text(angle = 45, hjust = 1)))
+  ggsave(paste("output_musc/dystrophic_genes_violin.png", sep = ""), dpi = 600)
+  ggsave(paste("output_musc/dystrophic_genes_violin.pdf", sep = ""), dpi = 600)
+```

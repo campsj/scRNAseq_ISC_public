@@ -1,0 +1,164 @@
+---
+title: "Integrate_ISC"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load packages
+```{r}
+library(Seurat)
+library(SingleCellExperiment)
+library(scater)
+library(dplyr)
+```
+
+## Load and prepare data
+### Camps
+```{r}
+(camps <- readRDS("input/reads_qc_scran_ISC_sc3.rds"))
+levels(camps$sc3_5_clusters)
+```
+
+```{r}
+plotPCA(camps, colour_by="sc3_5_clusters")
+```
+
+```{r}
+levels(camps$sc3_5_clusters) <- c("ISC 3c", "ISC 3a", "ISC 3b", "ISC 1", "ISC 2")
+```
+
+
+```{r}
+camps.seurat <- as.Seurat(camps)
+camps.seurat$dataset <- "Camps"
+#rename Idents
+Idents(camps.seurat) <- camps.seurat$sc3_5_clusters
+#camps.seurat.isc <- camps.seurat[, camps.seurat$Clusters %in% c("ISC 1", "ISC 2", "ISC 3")]
+camps.seurat
+```
+
+### Giordani
+```{r}
+(giordani.seurat <- readRDS("input/giordani_seurat_annotated.rds"))
+giordani.seurat$dataset <- "Giordani"
+unique(Idents(giordani.seurat))
+giordani.seurat.isc <- giordani.seurat[, Idents(giordani.seurat) == "FAP"]
+giordani.seurat.isc
+```
+
+### Tabula muris
+```{r}
+(tm.seurat <- readRDS("input/tm_droplet_limbMuscle_seurat.rds"))
+tm.seurat$dataset <- "Schaum"
+Idents(tm.seurat) <- tm.seurat$authors_annotation
+unique(Idents(tm.seurat))
+#levels(Idents(tm.seurat)) <- c("Endothelial", "T", "B", "Mesenchymal progenitor", "Macrophage", "Satellite")
+tm.seurat.isc <- tm.seurat[, tm.seurat$authors_annotation == "Mesenchymal stem"]
+tm.seurat.isc
+```
+
+## Merge datasets into list
+```{r}
+isc <- list(camps = camps.seurat, giordani = giordani.seurat.isc, tabula.muris = tm.seurat.isc)
+isc
+```
+
+```{r}
+for (i in 1:length(isc)) {
+    isc[[i]] <- NormalizeData(isc[[i]], verbose = FALSE)
+    isc[[i]] <- FindVariableFeatures(isc[[i]], selection.method = "vst", 
+        nfeatures = 2000, verbose = FALSE)
+}
+```
+
+```{r}
+isc.anchors <- FindIntegrationAnchors(isc, dims = 1:10) 
+```
+
+```{r}
+isc.integrated <- IntegrateData(anchorset = isc.anchors, dims = 1:10)
+```
+
+```{r}
+library(ggplot2)
+#library(cowplot)
+# switch to integrated assay. The variable features of this assay are automatically
+# set during IntegrateData
+DefaultAssay(isc.integrated) <- "integrated"
+
+# Run the standard workflow for visualization and clustering
+isc.integrated <- ScaleData(isc.integrated, verbose = FALSE)
+isc.integrated <- RunPCA(isc.integrated, verbose = FALSE)
+ElbowPlot(isc.integrated)
+```
+
+```{r}
+isc.integrated <- RunUMAP(isc.integrated, reduction = "pca", dims = 1:15)
+DimPlot(isc.integrated, reduction = "umap")
+```
+
+
+```{r fig.height=5, fig.width=16}
+FeaturePlot(isc.integrated, features = c("Ly6a", "Pdgfra", "Cd34", "Anxa3", "Cd55", "F3", "Gdf10", "Meox2", "Thbs4", "Fbln7", "Ptx3", "Cthrc1"), reduction = "umap", min.cutoff = .5, ncol = 6)
+ggsave("output/ISC/integration/markers_umap.png", dpi = 300, height = 5, width = 16)
+```
+
+```{r fig.height=5, fig.width=13}
+DimPlot(object = isc.integrated, reduction = "umap", split.by = "dataset", label = TRUE, ncol = 3, pt.size = 1) + NoLegend() + ggsave("output/isc/integration/umap.splitByDataset.png", dpi = 300, height = 5, width = 13)
+```
+
+```{r fig.height=5, fig.width=5}
+DimPlot(isc.integrated, reduction = "umap", group.by = "dataset") + theme(legend.position = "top") +
+  scale_color_brewer(type = "qual", palette = "Dark2")
+  ggsave("output/isc/integration/umap.groupByDataset.png", dpi = 300, height = 5, width = 5)
+```
+
+```{r}
+isc.integrated <- FindNeighbors(isc.integrated, dims = 1:15)
+isc.integrated <- FindClusters(isc.integrated, resolution = 0.5)
+```
+
+```{r}
+DimPlot(isc.integrated, reduction = "umap")
+```
+
+```{r}
+# find markers for every cluster compared to all remaining cells, report only the positive ones
+isc.integrated.markers <- FindAllMarkers(isc.integrated, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+isc.integrated.markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+write.csv(isc.integrated.markers, file = "output/integration/marker_genes.csv")
+```
+
+```{r}
+new.cluster.ids <- c(NA, "ISC 1", "ISC 3a", "ISC 2", "ISC 3b", "ISC 1", "ISC 2", "Sca-1 negative", NA, "Endothelial-like")
+names(new.cluster.ids) <- levels(isc.integrated)
+isc.integrated <- RenameIdents(isc.integrated, new.cluster.ids)
+```
+
+```{r fig.height=5, fig.width=16}
+FeaturePlot(isc.integrated, features = c("Pi16", "Hmox1", "Hspa1a", "Cxcl13", "Mgp", "Gas1", "Apod", "Cxcl14", "Pecam1"), reduction = "umap", min.cutoff = .5, ncol = 6)
+ggsave("output/ISC/integration/new_markers_umap.png", dpi = 300, height = 5, width = 16)
+```
+
+
+```{r fig.height=5, fig.width=7}
+DimPlot(isc.integrated, reduction = "umap", label = TRUE) +
+ ggsave("output/ISC/integration/new_clusters_umap.png", dpi = 300, height = 5, width = 7)
+```
+
+```{r fig.height=5, fig.width=7}
+isc.integrated@meta.data %>%
+  ggplot(aes(x = Idents(isc.integrated), fill = dataset)) +
+  geom_bar(width = .8) +
+  #scale_x_discrete(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  scale_fill_brewer(type = "qual", palette = "Dark2") +
+  theme_bw() +
+  theme(panel.border = element_blank(), axis.line = element_line(colour = "black"), axis.text = element_text(colour = "black"),
+        panel.grid = element_blank(), axis.title.x = element_blank(), legend.title = element_blank())
+ggsave("output/ISC/integration/Cluster_ratios_per_dataset.png", dpi = 300, height = 5, width = 7)
+```
+

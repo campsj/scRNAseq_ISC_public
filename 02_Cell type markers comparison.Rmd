@@ -1,0 +1,91 @@
+---
+title: "Compare top cell type markers"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load libraries
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+```
+
+## Load files
+### Camps
+```{r}
+camps <- read.csv("C:/Users/Jordi_Camps/OneDrive/Documents/PhD/Results/Aregs in skeletal muscle project/scRNAseq analysis/1moWTB-GC040290/scRNAseq/tables/Interstitium/k7_de_genes.csv")
+camps$annotation <- plyr::revalue(factor(camps$sc3_7_markers_clusts), c("1" = "ISC", "2" = "ISC", "3" = "ISC", 
+                                                                                  "4" = "Satellite", "5" = "Schwann", 
+                                                                                  "6" = "Smooth muscle", "7" = "Fibroblast"))
+camps$gene <- camps$feature_symbol
+head(camps)
+```
+
+### Giordani
+```{r}
+giordani <- readRDS("output/giordani/giordani_cluster_markers.rds")
+head(giordani)
+```
+
+### Plot overlapping markers per cluster
+```{r fig.height=5, fig.width=5}
+df <- giordani %>%
+  #filter(Idents %in% c("FAP", "Satellite", "SMMC", "Tenocyte", "Glial")) %>%
+  inner_join(camps, by = "gene") %>%
+  group_by(annotation, Idents) %>%
+  tally() 
+camps %>%
+  select(annotation) %>%
+  group_by(annotation) %>%
+  tally(name = "total") %>%
+  right_join(df, by = "annotation") %>%
+  mutate(percent_matched = n / total) %>%
+  ggplot(aes(x = annotation, y = Idents, size = percent_matched, col = percent_matched)) +
+    geom_point() +
+    scale_y_discrete("Giordani clusters") +
+    scale_x_discrete("Camps clusters") +
+    scale_color_gradient("Matched markers", limits = c(0.1, 1), low = "darkgrey", high = "blue", guide = "legend") +
+    scale_size_continuous("Matched markers", limits = c(0.1, 1)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid = element_blank(), panel.border = element_blank(), 
+          axis.line = element_line(colour = "black"), axis.text = element_text(colour = "black"), legend.position = "top")
+ggsave("output/integration/comparison_markers_camps_giordani.png", dpi = 300, height = 5, width = 5)
+```
+
+
+### Schaum
+```{r}
+schaum <- readRDS("output/schaum/tm_cluster_markers.rds")
+schaum$Idents <- schaum$authors_annotation
+unique(schaum$authors_annotation)
+head(schaum)
+```
+
+```{r fig.height=5, fig.width=5}
+df <- schaum %>%
+  #filter(Idents %in% c("Mesenchymal stem", "Satellite", "SMMC", "Tenocyte", "Glial")) %>%
+  inner_join(camps, by = "gene") %>%
+  group_by(annotation, authors_annotation) %>%
+  tally() 
+camps %>%
+  select(annotation) %>%
+  group_by(annotation) %>%
+  tally(name = "total") %>%
+  right_join(df, by = "annotation") %>%
+  mutate(percent_matched = n / total) %>%
+  ggplot(aes(x = annotation, y = authors_annotation, size = percent_matched, col = percent_matched)) +
+    geom_point() +
+    scale_y_discrete("Schaum clusters") +
+    scale_x_discrete("Camps clusters") +
+    scale_color_gradient("Matched markers", limits = c(0.1, 1), low = "darkgrey", high = "blue", guide = "legend") +
+    scale_size_continuous("Matched markers", limits = c(0.1, 1)) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid = element_blank(), panel.border = element_blank(), 
+          axis.line = element_line(colour = "black"), axis.text = element_text(colour = "black"), legend.position = "top")
+ggsave("output/integration/comparison_markers_camps_schaum.png", dpi = 300, height = 5, width = 5)
+```
+

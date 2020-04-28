@@ -1,0 +1,105 @@
+---
+title: "Clustering Giordani"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load packages
+```{r}
+library(GEOquery)
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+options(stringsAsFactors = FALSE)
+```
+
+
+## Load data
+```{r}
+giordani_counts <- readRDS("input/giordani_counts_raw.rds")
+giordani_seurat <- CreateSeuratObject(counts = giordani_counts, project = "Giordani clustering", min.cells = 5, min.features = 200)
+```
+
+## QC
+```{r}
+giordani_seurat[["percent.mt"]] <- PercentageFeatureSet(giordani_seurat, pattern = "^mt-")
+```
+
+```{r}
+VlnPlot(giordani_seurat, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+```
+
+```{r}
+giordani_seurat <- subset(giordani_seurat, subset = percent.mt < 10)
+```
+
+```{r}
+giordani_seurat <- giordani_seurat %>%
+  NormalizeData() %>%
+  FindVariableFeatures(nfeatures = 2000) %>%
+  ScaleData() %>%
+  RunPCA()
+```
+
+```{r}
+ElbowPlot(giordani_seurat)
+```
+
+```{r}
+giordani_seurat <- giordani_seurat %>%
+  FindNeighbors(dims = 1:20) %>%
+  FindClusters(resolution = 0.5) %>%
+  RunUMAP(dims = 1:20)
+```
+
+```{r}
+DimPlot(giordani_seurat, reduction = "umap", label = TRUE)
+```
+
+```{r fig.height=10, fig.width=10}
+FeaturePlot(giordani_seurat, features = c("Wnt6", "Myl1", "Mmrn1"), ncol = 1, pt.size = 1) + ggsave("output/giordani/unnotated_clusters.png", dpi = 300, width = 3, height = 9)
+FeaturePlot(giordani_seurat, features = c("Cd3g", "Cd79a", "Lyz2", "Retnlg", "Pecam1", "Pdgfra", "Myod1", "Myl9", "Thbs4", "Plp1"), ncol = 4) +
+  ggsave("output/giordani/cell_type_markers.png", dpi = 300, width = 12, height = 9)
+FeaturePlot(giordani_seurat, features = c("Il1b", "Ccl6", "Retnlg"), ncol = 1) + ggsave("output/giordani/unnotated_clusters.png", dpi = 300, width = 3, height = 9)
+```
+
+## Differential expression
+```{r}
+giordani_seurat_markers <- FindAllMarkers(giordani_seurat, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+giordani_seurat_markers %>% group_by(cluster) %>% top_n(n = 10, wt = avg_logFC)
+#saveRDS(giordani_seurat_markers, "output/giordani_cluster_markers.rds")
+```
+
+```{r}
+cell_states <- c("B", "Endothelial", "Endothelial", "FAP", "T", "Satellite", "Tenocyte", "B", "T", "SMMC", "Endothelial", "FAP", "Macrophage", "Monocyte", "Endothelial", "Glial", "Mmrn1+", "Sfrp5+", "B", "DC", "Myl1+")
+names(cell_states) <- levels(giordani_seurat)
+giordani_seurat <- RenameIdents(giordani_seurat, cell_states)
+DimPlot(giordani_seurat, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend() + ggsave("output/giordani/clusters_annotated.png", dpi = 300, width = 6, height = 6)
+```
+
+### Dotplot markers
+```{r fig.height=6, fig.width=10}
+Idents(giordani_seurat) <- factor(Idents(giordani_seurat), levels = rev(c("T", "B", "Monocyte", "Macrophage", "DC", "Endothelial", "FAP", "Satellite", "SMMC", "Tenocyte", "Glial", "Mmrn1+", "Sfrp5+", "Myl1+")))
+DotPlot(giordani_seurat, features = rev(c("Cd3g", "Cd79a", "Cd14", "Il1b", "Retnlg", "Pecam1", "Ly6a", "Pdgfra", "Myod1", "Myl9", "Thbs4", "Plp1", "Mmrn1", "Sfrp5", "Myl1"))) + RotatedAxis() + theme(axis.title = element_blank()) + ggsave("output/giordani/dotplot_percentage_expressed_markers.png", dpi = 300, height = 6, width = 8)
+```
+
+## attach cluster idents to DE
+```{r}
+giordani_seurat$Idents <- Idents(giordani_seurat)
+giordani_seurat$cluster <- giordani_seurat$seurat_clusters
+cluster_annotation <- giordani_seurat@meta.data %>%
+  select(cluster, Idents) %>%
+  distinct()
+giordani_seurat_markers <- giordani_seurat_markers %>%
+  left_join(cluster_annotation, by = "cluster")
+```
+
+## Save to rds
+```{r}
+saveRDS(giordani_seurat_markers, "output/giordani/giordani_cluster_markers.rds")
+saveRDS(giordani_seurat, "input/giordani_seurat_annotated.rds ")
+```
+
